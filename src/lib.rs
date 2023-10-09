@@ -1,14 +1,9 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+#![doc = include_str!("../README.md")]
+
+pub mod raw;
+pub use self::raw::Mergable;
+mod prelude;
+pub use self::prelude::*;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+mod test;

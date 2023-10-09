@@ -2,5 +2,25 @@
 name = "tagged_ufs"
 version = "0.1.0"
 edition = "2021"
+license-file = "LICENSE"
+description = """
+A union-find-set implementation, in which sets can be associated with tags.
+When two sets are united, their tags are merged.
+"""
+repository = "https://github.com/TimeExceed/tagged-ufs"
+readme = "README.md"
+categories = ["algorithms", "data-structures"]
+keywords = ["set", "union-find-set"]
 
 [dependencies]
+ahash = "0.8.3"
+anyhow = "1.0.75"
+
+[dev-dependencies]
+criterion = "0.5.1"
+quickcheck = "1.0.3"
+quickcheck_macros = "1.0.0"
+
+[[bench]]
+name = "bench"
+harness = false
