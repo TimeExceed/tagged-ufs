@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use tagged_ufs::UnionFindSets;
+use tagged_ufs::*;
 
 criterion_group!(benches, add_union_case);
 criterion_main!(benches);
@@ -18,9 +18,9 @@ fn add_union_case(c: &mut Criterion) {
 }
 
 fn add_union(n: usize) {
-    let mut sets = UnionFindSets::<usize, ()>::new();
+    let mut sets = UnionFindSets::<usize, SizedTag<()>>::new();
     for i in 0..n {
-        sets.make_set(i, ()).unwrap();
+        sets.make_set(i, SizedTag::new(())).unwrap();
     }
     for i in 1..n {
         sets.unite(&0, &i).unwrap();

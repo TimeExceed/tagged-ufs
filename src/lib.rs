@@ -1,9 +1,9 @@
 #![doc = include_str!("../README.md")]
 
-pub mod raw;
-pub use self::raw::Mergable;
 mod prelude;
 pub use self::prelude::*;
+mod tag;
+pub use self::tag::*;
 
 #[cfg(test)]
 mod test;

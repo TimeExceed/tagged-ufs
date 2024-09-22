@@ -1,27 +1,54 @@
-use crate::Mergable;
 use std::borrow::Borrow;
-use std::collections::LinkedList;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::hash::Hash;
 
-/// A set of union-find sets, each of which can be associated with a mergable tag.
+pub trait Mergable<Key> {
+    fn merge<K1, K2>(&mut self, other: Self, key1: &K1, key2: &K2)
+    where
+        K1: Borrow<Key>,
+        K2: Borrow<Key>;
+}
+
+pub trait Lengthed {
+    fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// Raw implementation of union-find sets, with built-in balanced union and path compression.
 #[derive(Clone)]
 pub struct UnionFindSets<Key, Tag>
 where
     Key: Eq + Hash,
-    Tag: Mergable,
+    Tag: Mergable<Key> + Lengthed,
 {
-    raw: crate::raw::UnionFindSets<Key, IterableTag<Key, Tag>>,
+    parents: RefCell<HashMap<Key, Key, ahash::RandomState>>,
+    tags: HashMap<Key, Tag, ahash::RandomState>,
+}
+
+impl<Key, Tag> Default for UnionFindSets<Key, Tag>
+where
+    Key: Eq + Hash + Clone,
+    Tag: Mergable<Key> + Lengthed,
+{
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<Key, Tag> UnionFindSets<Key, Tag>
 where
     Key: Eq + Hash + Clone,
-    Tag: Mergable,
+    Tag: Mergable<Key> + Lengthed,
 {
     /// Makes a new, empty set of sets.
     pub fn new() -> Self {
         Self {
-            raw: crate::raw::UnionFindSets::new(),
+            parents: RefCell::new(HashMap::with_hasher(ahash::RandomState::new())),
+            tags: HashMap::with_hasher(ahash::RandomState::new()),
         }
     }
 
@@ -30,7 +57,17 @@ where
     /// If the set to make is already there,
     /// an error will be raised and nothing will happen to the sets.
     pub fn make_set(&mut self, key: Key, tag: Tag) -> anyhow::Result<()> {
-        self.raw.make_set(key.clone(), IterableTag::new(key, tag))
+        {
+            let parents = self.parents.borrow();
+            if parents.contains_key(&key) {
+                anyhow::bail!("Duplicated key!");
+            }
+        }
+        if self.tags.contains_key(&key) {
+            anyhow::bail!("Duplicated key!");
+        }
+        self.tags.insert(key, tag);
+        Ok(())
     }
 
     /// Unites two sets.
@@ -44,7 +81,31 @@ where
         K1: Hash + Eq + Borrow<Key> + std::fmt::Debug,
         K2: Hash + Eq + Borrow<Key> + std::fmt::Debug,
     {
-        self.raw.unite(key1, key2)
+        let Some(key1_top) = self.find_root_key(key1) else {
+            anyhow::bail!("Cannot find set: {:?}", key1);
+        };
+        let Some(key2_top) = self.find_root_key(key2) else {
+            anyhow::bail!("Cannot find set: {:?}", key2);
+        };
+        if key1_top == key2_top {
+            return Ok(false);
+        }
+        let key1_top = key1_top.clone();
+        let key2_top = key2_top.clone();
+        let mut key1_tag = self.tags.remove(&key1_top).unwrap();
+        let mut key2_tag = self.tags.remove(&key2_top).unwrap();
+        let key1_is_parent = key1_tag.len() > key2_tag.len();
+        let mut parents = self.parents.borrow_mut();
+        if key1_is_parent {
+            key1_tag.merge(key2_tag, key1, key2);
+            parents.insert(key2_top, key1_top.clone());
+            self.tags.insert(key1_top, key1_tag);
+        } else {
+            key2_tag.merge(key1_tag, key2, key1);
+            parents.insert(key1_top, key2_top.clone());
+            self.tags.insert(key2_top, key2_tag);
+        }
+        Ok(true)
     }
 
     /// Finds an individual set.
@@ -54,108 +115,84 @@ where
     where
         K: Eq + Hash + Borrow<Key>,
     {
-        self.raw.find(key).map(|x| Set { raw: x })
+        let root_key = self.find_root_key(key)?;
+        let tag = self.tags.get(root_key).unwrap();
+        Some(Set {
+            root: root_key,
+            tag,
+        })
     }
 
     /// Iterates over all individual sets.
     pub fn iter(&self) -> impl Iterator<Item = Set<Key, Tag>> {
-        self.raw.iter().map(|raw| Set { raw })
+        self.tags.iter().map(|(key, tag)| Set { root: key, tag })
     }
 
     /// Queries the number of individual sets in the set.
     pub fn len(&self) -> usize {
-        self.raw.len()
+        self.tags.len()
     }
 
     /// Tests if this set (of sets) is empty.
     pub fn is_empty(&self) -> bool {
-        self.raw.is_empty()
+        self.tags.is_empty()
     }
-}
 
-impl<Key, Tag> Default for UnionFindSets<Key, Tag>
-where
-    Key: Eq + Hash + Clone,
-    Tag: Mergable,
-{
-    fn default() -> Self {
-        Self::new()
+    fn find_root_key<K>(&self, key: &K) -> Option<&Key>
+    where
+        K: Hash + Eq + Borrow<Key>,
+    {
+        self.find_top_key_(key.borrow())
     }
-}
 
-/// A wrapper to customized tag, which provides iterability over elements.
-///
-/// The iterability is implemented by linked list.
-/// So, merging two IterableTag's has O(1) overhead.
-#[derive(Debug, Clone)]
-pub struct IterableTag<Key, Tag> {
-    sets: LinkedList<Key>,
-    tag: Tag,
-}
-
-impl<Key, Tag> Mergable for IterableTag<Key, Tag>
-where
-    Tag: Mergable,
-{
-    fn merge(&mut self, mut other: Self) {
-        self.sets.append(&mut other.sets);
-        self.tag.merge(other.tag);
+    fn find_top_key_(&self, key: &Key) -> Option<&Key> {
+        let mut keys = vec![];
+        let top = {
+            let parents = self.parents.borrow();
+            self.collect_keys(key, &mut keys, parents.borrow())?
+        };
+        keys.pop();
+        if !keys.is_empty() {
+            let mut parents = self.parents.borrow_mut();
+            while let Some(mid_key) = keys.pop() {
+                parents.insert(mid_key, top.clone());
+            }
+        }
+        Some(top)
     }
-}
 
-impl<Key, Tag> IterableTag<Key, Tag> {
-    pub fn new(key: Key, tag: Tag) -> Self {
-        Self {
-            sets: LinkedList::from_iter([key]),
-            tag,
+    fn collect_keys(
+        &self,
+        key: &Key,
+        keys: &mut Vec<Key>,
+        parents: &HashMap<Key, Key, ahash::RandomState>,
+    ) -> Option<&Key> {
+        if let Some(nxt_key) = parents.get(key) {
+            keys.push(key.clone());
+            self.collect_keys(nxt_key, keys, parents)
+        } else if let Some((top, _)) = self.tags.get_key_value(key) {
+            Some(top)
+        } else {
+            None
         }
     }
 }
 
-/// An individual set
+/// An individual set of elements,
+/// which is able to neither inspect into nor iterate over its elements.
 #[derive(Debug)]
 pub struct Set<'a, Key, Tag>
 where
     Key: Eq,
 {
-    raw: crate::raw::Set<'a, Key, IterableTag<Key, Tag>>,
+    pub root: &'a Key,
+    pub tag: &'a Tag,
 }
 
 impl<'a, Key: Eq + Hash, Tag> PartialEq for Set<'a, Key, Tag> {
     fn eq(&self, other: &Self) -> bool {
-        self.raw.eq(&other.raw)
+        self.root.eq(other.root)
     }
 }
 
 impl<'a, Key: Eq + Hash, Tag> Eq for Set<'a, Key, Tag> {}
-
-impl<'a, Key, Tag> Set<'a, Key, Tag>
-where
-    Key: Eq + Hash,
-    Tag: Mergable,
-{
-    /// Queries the number of elements in the set.
-    pub fn len(&self) -> usize {
-        self.raw.len()
-    }
-
-    /// Tests if the set is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Iterates over elements in the set.
-    pub fn iter(&self) -> impl Iterator<Item = &Key> {
-        self.raw.tag().sets.iter()
-    }
-
-    /// Gets the representative element
-    pub fn key(&self) -> &Key {
-        self.raw.key()
-    }
-
-    /// Gets the tag associated with this set.
-    pub fn tag(&self) -> &Tag {
-        &self.raw.tag().tag
-    }
-}
