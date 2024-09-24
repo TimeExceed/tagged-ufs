@@ -13,7 +13,7 @@ categories = ["algorithms", "data-structures"]
 keywords = ["set", "union-find-set"]
 
 [dependencies]
-ahash = "0.8.3"
+ahash = "0.8.11"
 anyhow = "1.0.75"
 
 [dev-dependencies]
