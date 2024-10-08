@@ -3,14 +3,25 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::Hash;
 
+/// A trait that allows merging two sets.
 pub trait Mergable<Key> {
+    /// Merges tags of two sets.
+    ///
+    /// This method will always be called by the union-find-set algorithm.
+    /// The algorithm ensures that
+    /// * `other` is merged into `self`.
+    /// * `key1` is respected to be the key of `self`;  `key2` to be that of `other`.
     fn merge<K1, K2>(&mut self, other: Self, key1: &K1, key2: &K2)
     where
         K1: Borrow<Key>,
         K2: Borrow<Key>;
 }
 
+/// A trait that allows querying the size of a set.
+///
+/// The union-find-set algorithm requires users' tag types to implement this.
 pub trait Lengthed {
+    /// Returns the number of elements in the set.
     fn len(&self) -> usize;
 
     fn is_empty(&self) -> bool {
@@ -72,10 +83,9 @@ where
 
     /// Unites two sets.
     ///
-    /// If either of them is not in the sets, an error will be raised;
-    /// if they are of a same set, `Ok(false)` will be returns;
-    /// otherwise, which means these two sets are really united into one in this case,
-    /// `Ok(true)` will be returned.
+    /// *   If either of them is not in the sets, an error will be raised;
+    /// *   if they are in a same set, `Ok(false)` will be returns;
+    /// *   otherwise, which means these two sets are really united in this case, `Ok(true)` will be returned.
     pub fn unite<K1, K2>(&mut self, key1: &K1, key2: &K2) -> anyhow::Result<bool>
     where
         K1: Hash + Eq + Borrow<Key> + std::fmt::Debug,
@@ -110,7 +120,7 @@ where
 
     /// Finds an individual set.
     ///
-    /// If the set is not inside, `None` will be returned.
+    /// If there is no such a set, `None` will be returned.
     pub fn find<K>(&self, key: &K) -> Option<Set<Key, Tag>>
     where
         K: Eq + Hash + Borrow<Key>,
@@ -178,14 +188,15 @@ where
     }
 }
 
-/// An individual set of elements,
-/// which is able to neither inspect into nor iterate over its elements.
+/// An individual set of elements, provided in the way of the root element and its tag.
 #[derive(Debug)]
 pub struct Set<'a, Key, Tag>
 where
     Key: Eq,
 {
+    /// The root element of the set.
     pub root: &'a Key,
+    /// The tag associated with the set.
     pub tag: &'a Tag,
 }
 

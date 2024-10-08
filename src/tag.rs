@@ -13,6 +13,7 @@ impl<Key> Mergable<Key> for () {
     }
 }
 
+/// A wrapper to customized tag, which can inspect the size of a set.
 #[derive(Debug, Clone)]
 pub struct SizedTag<Tag> {
     size: usize,
